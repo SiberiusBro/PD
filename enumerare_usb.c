@@ -1,73 +1,51 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <libusb-1.0/libusb.h>
+#include <windows.h>
+#include <setupapi.h>
+#include <initguid.h>
+#include <devguid.h>
+#include <cfgmgr32.h>
+#include <iostream>
 
-int main(void) {
-    libusb_context *context = NULL;
-    libusb_device **list = NULL;
-    ssize_t count;
-    int rc;
+#pragma comment(lib, "setupapi.lib")
 
+int main() {
+    // Ia USB
+    HDEVINFO deviceInfo = SetupDiGetClassDevs(
+        &GUID_DEVCLASS_USB, // clasa USB
+        NULL,
+        NULL,
+        DIGCF_PRESENT | DIGCF_PROFILE
+    );
 
-    rc = libusb_init(&context);
-    if (rc < 0) {
-        fprintf(stderr, "Eroare libusb: %s\n", libusb_strerror(rc));
-        return EXIT_FAILURE;
+    if (deviceInfo == INVALID_HANDLE_VALUE) {
+        std::cerr << "Eroare la obtinerea dispozitivelor USB.\n";
+        return 1;
     }
 
+    SP_DEVINFO_DATA devInfoData;
+    devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
 
-    count = libusb_get_device_list(context, &list);
-    if (count < 0) {
-        fprintf(stderr, "Eroare: %s\n", libusb_strerror((int)count));
-        libusb_exit(context);
-        return EXIT_FAILURE;
-    }
+    int deviceIndex = 0;
 
-    printf("USB gasite: %zd\n", count);
+    while (SetupDiEnumDeviceInfo(deviceInfo, deviceIndex, &devInfoData)) {
+        DWORD dataType, dataSize = 0;
+        TCHAR buffer[1024];
 
-
-    for (ssize_t idx = 0; idx < count; idx++) {
-        libusb_device *device = list[idx];
-        struct libusb_device_descriptor desc;
-
-
-        rc = libusb_get_device_descriptor(device, &desc);
-        if (rc < 0) {
-            fprintf(stderr, "Eroare: %s\n", libusb_strerror(rc));
-            continue;
+        if (SetupDiGetDeviceRegistryProperty(
+            deviceInfo,
+            &devInfoData,
+            SPDRP_DEVICEDESC,
+            &dataType,
+            (PBYTE)buffer,
+            sizeof(buffer),
+            &dataSize
+        )) {
+            std::wcout << L"Dispozitiv USB [" << deviceIndex << L"]: " << buffer << std::endl;
         }
 
-        printf("\nDispozitiv %zd:\n", idx);
-        printf("  ID Vendor : 0x%04x\n", desc.idVendor);
-        printf("  ID Product: 0x%04x\n", desc.idProduct);
-
-  
-        libusb_device_handle *handle;
-        rc = libusb_open(device, &handle);
-        if (rc == 0 && handle) {
-            unsigned char string[256];
-
-            if (desc.iManufacturer) {
-                if (libusb_get_string_descriptor_ascii(handle, desc.iManufacturer,
-                                                       string, sizeof(string)) > 0) {
-                    printf("  Producator: %s\n", string);
-                }
-            }
-            if (desc.iProduct) {
-                if (libusb_get_string_descriptor_ascii(handle, desc.iProduct,
-                                                       string, sizeof(string)) > 0) {
-                    printf("  Produs: %s\n", string);
-                }
-            }
-
-            libusb_close(handle);
-        } else {
-            printf("  (Nu s-a putut deschide dispozitivul)\n");
-        }
+        deviceIndex++;
     }
 
-    libusb_free_device_list(list, 1);
-    libusb_exit(context);
+    SetupDiDestroyDeviceInfoList(deviceInfo);
 
-    return EXIT_SUCCESS;
+    return 0;
 }
